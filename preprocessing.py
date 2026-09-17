@@ -56,7 +56,7 @@ features = [
 
 target = "is_fraud"
 
-data = df[features + [target]].copy()
+data = df[["customer_id", "timestamp"] + features + [target]].copy()
 
 
 # ==========================================
