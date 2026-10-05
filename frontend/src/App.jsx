@@ -10,6 +10,9 @@ function App() {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
   const [receiverId, setReceiverId] = useState("");
+  const [cardId, setCardId] = useState("");
+  const [merchantId, setMerchantId] = useState("");
+  const [deviceId, setDeviceId] = useState("");
 
   const checkPayment = async () => {
     setLoading(true);
@@ -27,6 +30,9 @@ function App() {
           body: JSON.stringify({
             customer_id: customerId,
             receiver_id: receiverId,
+            card_id: cardId,
+            merchant_id: merchantId,
+            device_id: deviceId,
             amount: Number(amount),
             new_device: newDevice ? 1 : 0,
           }),
@@ -40,6 +46,36 @@ function App() {
       }
 
       setResult(data);
+    } catch (err) {
+      setError(err.message);
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const demoFraudCase = async () => {
+    setLoading(true);
+    setResult(null);
+    setError("");
+
+    try {
+      const response = await fetch("http://127.0.0.1:8000/demo-fraud-case");
+
+      const data = await response.json();
+
+      if (data.error) {
+        throw new Error(data.error);
+      }
+
+      setResult({
+        customer_id: data.customer_id,
+        receiver_id: "Demo Receiver",
+        amount: data.amount,
+        fraud_probability: data.fraud_probability,
+        risk: data.risk,
+        decision: data.decision,
+        demo: true,
+      });
     } catch (err) {
       setError(err.message);
     } finally {
@@ -79,6 +115,30 @@ function App() {
             placeholder="Enter receiver ID"
           />
 
+          <label>Card ID</label>
+          <input
+            type="text"
+            value={cardId}
+            onChange={(e) => setCardId(e.target.value)}
+            placeholder="Enter card ID"
+          />
+
+          <label>Merchant ID</label>
+          <input
+            type="text"
+            value={merchantId}
+            onChange={(e) => setMerchantId(e.target.value)}
+            placeholder="Enter merchant ID"
+          />
+
+          <label>Device ID</label>
+          <input
+            type="text"
+            value={deviceId}
+            onChange={(e) => setDeviceId(e.target.value)}
+            placeholder="Enter device ID"
+          />
+
           <label>Amount</label>
           <input
             type="number"
@@ -99,12 +159,23 @@ function App() {
           <button onClick={checkPayment} disabled={loading || !amount}>
             {loading ? "CHECKING TRANSACTION..." : "CHECK & MAKE PAYMENT"}
           </button>
+
+          <button
+            className="demo-button"
+            onClick={demoFraudCase}
+            disabled={loading}
+          >
+            {loading ? "LOADING DEMO..." : "TEST DEMO FRAUD CASE"}
+          </button>
         </div>
 
         {error && <div className="error-box">{error}</div>}
 
         {result && (
           <div className="result-card">
+            {result.demo && (
+              <div className="demo-label">DEMO — HISTORICAL TEST CASE</div>
+            )}
             <div className="result-header">
               <h2>TransFraud Risk Assessment</h2>
               <span>✓ Checked Before Payment</span>

@@ -7,7 +7,7 @@ from sklearn.metrics import (
     confusion_matrix
 )
 
-df = pd.read_csv("pre_fraud_correct_results.csv")
+df = pd.read_csv("evaluation/pre_fraud_correct_results.csv")
 
 y_true = df["actual_label"]
 y_prob = df["fraud_probability"]

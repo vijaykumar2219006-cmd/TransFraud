@@ -1,0 +1,104 @@
+TRANSFRAUD — TEST CASES
+=======================
+
+TEST CASE 1 — Normal Payment / Existing Device
+-----------------------------------------------
+Customer ID: CUST0000186
+Receiver ID: TEST001
+Card ID: CARD0000186-3
+Merchant ID: MID017968
+Device ID: 4b00bd1c7e06
+Amount: 100
+New Device: OFF
+
+Expected: Low Risk
+Previously observed: ~28.50% fraud probability
+
+
+TEST CASE 2 — New Device / Same Amount
+---------------------------------------
+Customer ID: CUST0000186
+Receiver ID: TEST001
+Card ID: CARD0000186-3
+Merchant ID: MID017968
+Device ID: 4b00bd1c7e06
+Amount: 100
+New Device: ON
+
+Expected: High Risk
+Previously observed: ~99.87% fraud probability
+
+
+TEST CASE 3 — Small Amount / Existing Device
+--------------------------------------------
+Customer ID: CUST0000186
+Receiver ID: TEST001
+Card ID: CARD0000186-3
+Merchant ID: MID017968
+Device ID: 4b00bd1c7e06
+Amount: 50
+New Device: OFF
+
+Expected: Low Risk
+Previously observed: ~28.49% fraud probability
+
+
+TEST CASE 4 — Small Amount / New Device
+---------------------------------------
+Customer ID: CUST0000186
+Receiver ID: TEST001
+Card ID: CARD0000186-3
+Merchant ID: MID017968
+Device ID: 4b00bd1c7e06
+Amount: 50
+New Device: ON
+
+Expected: High Risk
+Previously observed: ~99.87% fraud probability
+
+
+TEST CASE 5 — Higher Amount / Existing Device
+----------------------------------------------
+Customer ID: CUST0000186
+Receiver ID: TEST001
+Card ID: CARD0000186-3
+Merchant ID: MID017968
+Device ID: 4b00bd1c7e06
+Amount: 5000
+New Device: OFF
+
+Expected: Low Risk
+Previously observed: ~28.60% fraud probability
+
+Note: This is an unusually high amount compared with this customer's
+historical transactions, so it should be treated as a controlled test,
+not as evidence that transaction amount has little effect.
+
+
+TEST CASE 6 — Historical Fraud Demonstration
+---------------------------------------------
+Click:
+TEST DEMO FRAUD CASE
+
+No manual details are required.
+
+Customer ID: CUST0000186
+Amount: 1.72
+Actual Label: Fraud
+Fraud Probability: ~99.90%
+Risk: High
+Decision: Alert / Verify
+
+
+QUICK TEST SUMMARY
+==================
+1. Amount: 100   | New Device: OFF | Low Risk  | ~28.50%
+2. Amount: 100   | New Device: ON  | High Risk | ~99.87%
+3. Amount: 50    | New Device: OFF | Low Risk  | ~28.49%
+4. Amount: 50    | New Device: ON  | High Risk | ~99.87%
+5. Amount: 5000  | New Device: OFF | Low Risk  | ~28.60%
+6. Historical Fraud Demo          | High Risk | ~99.90%
+
+Note:
+The percentages above are previously observed results and may vary slightly
+when the application is run again.

@@ -1,3 +1,6 @@
+import os
+os.environ["TF_CPP_MIN_LOG_LEVEL"] = "2"
+
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
@@ -10,12 +13,12 @@ import tensorflow as tf
 # CONFIGURATION
 # ==================================================
 
-MODEL_PATH = "transfraud_bilstm_transformer.keras"
+MODEL_PATH = "models/transfraud_bilstm_transformer.keras"
 
 DATA_PATH = "datasets/SyntheticBanking/fraud_features.csv"
 
-MEAN_PATH = "feature_mean.npy"
-STD_PATH = "feature_std.npy"
+MEAN_PATH = "models/feature_mean.npy"
+STD_PATH = "models/feature_std.npy"
 
 SEQUENCE_LENGTH = 10
 
@@ -97,8 +100,11 @@ class PaymentRequest(BaseModel):
 class NewPaymentRequest(BaseModel):
     customer_id: str
     receiver_id: str
+    card_id: str
+    merchant_id: str
+    device_id: str
     amount: float
-    new_device: int = 0
+    
 
 
 # ==================================================
@@ -204,7 +210,17 @@ def create_sequence(transaction_index):
 
     return values
 
-def create_new_transaction_features(customer_id, amount, new_device):
+def create_new_transaction_features(
+    customer_id,
+    card_id,
+    merchant_id,
+    device_id,
+    amount
+):
+
+    # ==========================================
+    # CUSTOMER HISTORY
+    # ==========================================
 
     customer_history = df[
         df["customer_id"] == customer_id
@@ -219,11 +235,9 @@ def create_new_transaction_features(customer_id, amount, new_device):
             "Customer not found in transaction history."
         )
 
-    latest = customer_history.iloc[-1]
-
-    # ------------------------------------------
-    # Customer behavioral features
-    # ------------------------------------------
+    # ==========================================
+    # CUSTOMER FEATURES
+    # ==========================================
 
     customer_previous_count = len(customer_history)
 
@@ -231,84 +245,84 @@ def create_new_transaction_features(customer_id, amount, new_device):
         customer_history["amount"].mean()
     )
 
-    customer_amount_deviation = abs(
-        amount - customer_avg_previous_amount
-    )
-
-    # ------------------------------------------
-    # Historical card information
-    # ------------------------------------------
-
-    card_previous_count = float(
-        latest["card_previous_count"]
-    )
-
-    # ------------------------------------------
-    # Device information
-    # ------------------------------------------
-
-    if new_device == 1:
-        # A new device has no previous transactions
-        # associated with it.
-        device_previous_count = 0.0
-    else:
-        device_previous_count = float(
-            latest["device_previous_count"]
+    if customer_avg_previous_amount > 0:
+        customer_amount_deviation = (
+            amount / customer_avg_previous_amount
         )
+    else:
+        customer_amount_deviation = 0
 
-    # ------------------------------------------
-    # Merchant information
-    # ------------------------------------------
+    # ==========================================
+    # HISTORICAL CARD / DEVICE / MERCHANT DATA
+    # ==========================================
 
-    merchant_previous_count = float(
-        latest["merchant_previous_count"]
-    )
+    previous_timestamp = customer_history.iloc[-1]["timestamp"]
 
-    # ------------------------------------------
-    # Estimate realistic transaction time
-    # ------------------------------------------
+    card_history = df[
+        (df["card_id"].astype(str) == str(card_id)) &
+        (df["timestamp"] <= previous_timestamp)
+    ]   
 
-    timestamps = (
-        customer_history["timestamp"]
-        .sort_values()
-    )
+    card_previous_count = len(card_history)
 
-    if len(timestamps) >= 2:
 
-        time_differences = (
-            timestamps.diff()
+    device_history = df[
+        (df["device_id"].astype(str) == str(device_id)) &
+        (df["timestamp"] <= previous_timestamp)
+    ]
+
+    device_previous_count = len(device_history)
+
+
+    merchant_history = df[
+        (df["merchant_id"].astype(str) == str(merchant_id)) &
+        (df["timestamp"] <= previous_timestamp)
+    ]
+
+    merchant_previous_count = len(merchant_history)
+
+
+    # ==========================================
+    # ESTIMATE NEXT TRANSACTION TIME
+    # ==========================================
+
+    previous_timestamp = customer_history.iloc[-1]["timestamp"]
+
+    if len(customer_history) > 1:
+
+        customer_gaps = (
+            customer_history["timestamp"]
+            .diff()
             .dt.total_seconds()
             .dropna()
         )
 
-        # Remove invalid/non-positive intervals
-        time_differences = time_differences[
-            time_differences > 0
+        customer_gaps = customer_gaps[
+            customer_gaps > 0
         ]
 
-        if len(time_differences) > 0:
-            estimated_gap = float(
-                time_differences.median()
-            )
+        if len(customer_gaps) > 0:
+
+            estimated_gap = customer_gaps.median()
+
         else:
-            estimated_gap = 3600.0
+
+            estimated_gap = 86400
 
     else:
-        # Fallback: 1 hour
-        estimated_gap = 3600.0
 
-    previous_timestamp = latest["timestamp"]
+        estimated_gap = 86400
 
     current_timestamp = (
-        previous_timestamp
-        + pd.Timedelta(seconds=estimated_gap)
+        previous_timestamp +
+        pd.Timedelta(seconds=float(estimated_gap))
     )
 
     time_since_previous = estimated_gap
 
-    # ------------------------------------------
-    # Temporal features
-    # ------------------------------------------
+    # ==========================================
+    # TEMPORAL FEATURES
+    # ==========================================
 
     hour = current_timestamp.hour
 
@@ -316,9 +330,9 @@ def create_new_transaction_features(customer_id, amount, new_device):
 
     month = current_timestamp.month
 
-    # ------------------------------------------
-    # 12 model features
-    # ------------------------------------------
+    # ==========================================
+    # FINAL 12 FEATURES
+    # ==========================================
 
     features = np.array([
         amount,
@@ -327,7 +341,7 @@ def create_new_transaction_features(customer_id, amount, new_device):
         customer_amount_deviation,
         card_previous_count,
         device_previous_count,
-        new_device,
+        int(device_previous_count == 0),
         merchant_previous_count,
         time_since_previous,
         hour,
@@ -337,6 +351,9 @@ def create_new_transaction_features(customer_id, amount, new_device):
 
     return features
 
+class DemoPaymentRequest(BaseModel):
+    amount: float
+    new_device: int = 0
 # ==================================================
 # PREDICT PAYMENT
 # ==================================================
@@ -408,6 +425,50 @@ def predict_payment(payment: PaymentRequest):
         return {
             "error": str(e)
         }
+
+# ==================================================
+# DEMO FRAUD CASE
+# ==================================================
+
+@app.get("/demo-fraud-case")
+def demo_fraud_case():
+
+    try:
+
+        # Confirmed fraud transaction used for demonstration
+        demo_index = 1804
+
+        sequence = create_sequence(demo_index)
+
+        prediction = model.predict(
+            sequence,
+            verbose=0
+)
+
+        fraud_probability = float(prediction[0][0])
+
+        risk = classify_risk(fraud_probability)
+
+        decision = payment_decision(risk)
+
+        transaction = df.iloc[demo_index]
+
+        return {
+            "demo": True,
+            "transaction_index": demo_index,
+            "customer_id": str(transaction["customer_id"]),
+            "amount": float(transaction["amount"]),
+            "actual_label": int(transaction["is_fraud"]),
+            "fraud_probability": round(fraud_probability, 4),
+            "risk": risk,
+            "decision": decision
+        }
+
+    except Exception as e:
+
+        return {
+            "error": str(e)
+        }
 @app.post("/predict-new-payment")
 def predict_new_payment(payment: NewPaymentRequest):
 
@@ -415,13 +476,12 @@ def predict_new_payment(payment: NewPaymentRequest):
 
         # Create features for new transaction
         new_features = create_new_transaction_features(
-            payment.customer_id,
-            payment.amount,
-            payment.new_device
-        )
-
-        print("\nNew transaction features:")
-        print(new_features)
+    payment.customer_id,
+    payment.card_id,
+    payment.merchant_id,
+    payment.device_id,
+    payment.amount
+)
 
         # ------------------------------------------
         # Get customer's previous transactions
@@ -477,8 +537,6 @@ def predict_new_payment(payment: NewPaymentRequest):
         sequence = (
             sequence - feature_mean
         ) / feature_std
-        print("\nScaled new transaction:")
-        print(sequence[0, -1])
 
         # ------------------------------------------
         # Add batch dimension
@@ -487,9 +545,7 @@ def predict_new_payment(payment: NewPaymentRequest):
         if sequence.ndim == 2:
             sequence = np.expand_dims(sequence, axis=0)
 
-        print("Final sequence shape:", sequence.shape)
-        print("Final transaction row:")
-        print(sequence[0, -1])
+
         # ------------------------------------------
         # Model prediction
         # ------------------------------------------
@@ -525,3 +581,188 @@ def predict_new_payment(payment: NewPaymentRequest):
         return {
             "error": str(e)
         } 
+@app.post("/predict-demo-payment")
+def predict_demo_payment(payment: DemoPaymentRequest):
+
+    try:
+
+        # ------------------------------------------
+        # Demo customer
+        # ------------------------------------------
+
+        customer_id = "CUST0000069"
+
+        customer_history = df[
+            df["customer_id"] == customer_id
+        ].copy()
+
+        customer_history = customer_history.sort_values(
+            "timestamp"
+        )
+
+        # ------------------------------------------
+        # Find the known fraud transaction
+        # ------------------------------------------
+
+        fraud_rows = customer_history[
+            customer_history["is_fraud"] == 1
+        ]
+
+        if len(fraud_rows) == 0:
+            raise ValueError(
+                "No fraud transaction found for demo customer."
+            )
+
+        fraud_transaction = fraud_rows.iloc[0]
+
+        fraud_timestamp = fraud_transaction["timestamp"]
+
+        # ------------------------------------------
+        # ONLY transactions before the fraud
+        # ------------------------------------------
+
+        pre_fraud_history = customer_history[
+            customer_history["timestamp"] < fraud_timestamp
+        ].copy()
+
+        if len(pre_fraud_history) == 0:
+            raise ValueError(
+                "No historical transactions before fraud."
+            )
+
+        # ------------------------------------------
+        # Last 9 historical transactions
+        # ------------------------------------------
+
+        history = pre_fraud_history[
+            FEATURES
+        ].tail(SEQUENCE_LENGTH - 1).values.astype(
+            np.float32
+        )
+
+        # ------------------------------------------
+        # Current transaction
+        #
+        # Use the actual transaction's model features.
+        # DO NOT use is_fraud or fraud_type.
+        # ------------------------------------------
+
+        current_features = fraud_transaction[
+            FEATURES
+        ].values.astype(np.float32)
+
+        # ------------------------------------------
+        # Allow demo amount/device modification
+        # ------------------------------------------
+
+        current_features[0] = payment.amount
+
+        # Recalculate amount deviation
+        previous_avg = (
+            pre_fraud_history["amount"].mean()
+        )
+
+        current_features[3] = abs(
+            payment.amount - previous_avg
+        )
+
+        # ------------------------------------------
+        # Create sequence
+        # ------------------------------------------
+
+        sequence = np.vstack([
+            history,
+            current_features
+        ])
+
+        # ------------------------------------------
+        # Padding
+        # ------------------------------------------
+
+        if len(sequence) < SEQUENCE_LENGTH:
+
+            padding = np.zeros(
+                (
+                    SEQUENCE_LENGTH - len(sequence),
+                    len(FEATURES)
+                ),
+                dtype=np.float32
+            )
+
+            sequence = np.vstack([
+                padding,
+                sequence
+            ])
+
+        # ------------------------------------------
+        # Scale
+        # ------------------------------------------
+
+        sequence = (
+            sequence - feature_mean
+        ) / feature_std
+
+        # ------------------------------------------
+        # Batch dimension
+        # ------------------------------------------
+
+        sequence = sequence.reshape(
+            1,
+            SEQUENCE_LENGTH,
+            len(FEATURES)
+        )
+
+        print("\nDemo sequence shape:")
+        print(sequence.shape)
+
+        print("\nDemo current transaction:")
+        print(sequence[0, -1])
+
+        # ------------------------------------------
+        # Model prediction
+        # ------------------------------------------
+
+        prediction = model.predict(
+            sequence,
+            verbose=0
+        )
+
+        fraud_probability = float(
+            prediction[0][0]
+        )
+
+        # ------------------------------------------
+        # Risk classification
+        # ------------------------------------------
+
+        risk = classify_risk(
+            fraud_probability
+        )
+
+        decision = payment_decision(
+            risk
+        )
+
+        # ------------------------------------------
+        # Response
+        # ------------------------------------------
+
+        return {
+            "customer_id": customer_id,
+            "amount": payment.amount,
+            "fraud_probability":
+                round(fraud_probability, 4),
+            "risk": risk,
+            "decision": decision,
+            "checked_before_payment": True
+        }
+
+    except Exception as e:
+
+        return {
+            "error": str(e)
+        }
+
+if __name__ == "__main__":
+    import uvicorn
+    uvicorn.run(app, host="127.0.0.1", port=8000)
