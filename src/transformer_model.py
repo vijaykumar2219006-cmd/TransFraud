@@ -36,6 +36,9 @@ std = X_train.std(axis=(0, 1), keepdims=True)
 
 std[std == 0] = 1
 
+print("Training mean:", mean.flatten())
+print("Training std:", std.flatten())
+
 X_train = (X_train - mean) / std
 X_val = (X_val - mean) / std
 
@@ -131,7 +134,10 @@ history = model.fit(
 # 7. Save model
 # =========================
 
-model.save("transfraud_bilstm_transformer.keras")
+model.save("../models/transfraud_bilstm_transformer.keras")
+
+np.save("../models/feature_mean.npy", mean)
+np.save("../models/feature_std.npy", std)
 
 print("\nBiLSTM + Transformer training complete!")
 print("Model saved as transfraud_bilstm_transformer.keras")

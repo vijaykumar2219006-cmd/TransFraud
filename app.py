@@ -218,107 +218,142 @@ def create_new_transaction_features(
     amount
 ):
 
+
     # ==========================================
     # CUSTOMER HISTORY
     # ==========================================
 
+    # Use only the customer's historical transactions
     customer_history = df[
-        df["customer_id"] == customer_id
+        (df["customer_id"] == customer_id) &
+        (df["timestamp"] <= pd.Timestamp.now(tz="UTC"))
     ].copy()
 
     customer_history = customer_history.sort_values(
         "timestamp"
     )
 
-    if len(customer_history) == 0:
-        raise ValueError(
-            "Customer not found in transaction history."
-        )
-
     # ==========================================
     # CUSTOMER FEATURES
     # ==========================================
 
-    customer_previous_count = len(customer_history)
-
-    customer_avg_previous_amount = (
-        customer_history["amount"].mean()
-    )
-
-    if customer_avg_previous_amount > 0:
-        customer_amount_deviation = (
-            amount / customer_avg_previous_amount
-        )
-    else:
+    if len(customer_history) == 0:
+        # Completely new customer
+        customer_previous_count = 0
+        customer_avg_previous_amount = 0
         customer_amount_deviation = 0
 
+        # No previous transaction exists
+        previous_timestamp = None
+
+    else:
+        # Existing customer
+        customer_previous_count = len(customer_history)
+
+        customer_avg_previous_amount = (
+            customer_history["amount"].mean()
+        )
+
+        if customer_avg_previous_amount > 0:
+            customer_amount_deviation = (
+                amount / customer_avg_previous_amount
+            )
+        else:
+            customer_amount_deviation = 0
+
+        previous_timestamp = customer_history.iloc[-1]["timestamp"]
+
     # ==========================================
-    # HISTORICAL CARD / DEVICE / MERCHANT DATA
+    # HISTORICAL CARD / MERCHANT DATA
     # ==========================================
 
-    previous_timestamp = customer_history.iloc[-1]["timestamp"]
+    if previous_timestamp is None:
+        card_previous_count = 0
+        merchant_previous_count = 0
 
-    card_history = df[
-        (df["card_id"].astype(str) == str(card_id)) &
-        (df["timestamp"] <= previous_timestamp)
-    ]   
+    else:
+        card_history = df[
+            (df["card_id"].astype(str) == str(card_id)) &
+            (df["timestamp"] <= previous_timestamp)
+        ]
 
-    card_previous_count = len(card_history)
+        card_previous_count = len(card_history)
 
+        merchant_history = df[
+            (df["merchant_id"].astype(str) == str(merchant_id)) &
+            (df["timestamp"] <= previous_timestamp)
+        ]
+
+        merchant_previous_count = len(merchant_history)
+
+
+    
+    # ==========================================
+    # ESTIMATE TRANSACTION TIME
+    # ==========================================
+
+    if previous_timestamp is None:
+        # Completely new customer
+        current_timestamp = pd.Timestamp.now(tz="UTC")
+        time_since_previous = -1
+
+    else:
+        # Existing customer
+        if len(customer_history) > 1:
+            customer_gaps = (
+                customer_history["timestamp"]
+                .diff()
+                .dt.total_seconds()
+                .dropna()
+            )
+
+            customer_gaps = customer_gaps[
+                customer_gaps > 0
+            ]
+
+            if len(customer_gaps) > 0:
+                estimated_gap = customer_gaps.median()
+            else:
+                estimated_gap = 86400
+        else:
+            estimated_gap = 86400
+
+        current_timestamp = (
+            previous_timestamp +
+            pd.Timedelta(seconds=float(estimated_gap))
+        )
+
+        time_since_previous = estimated_gap
+
+    # ==========================================
+    # DEVICE HISTORY AT ESTIMATED PAYMENT TIME
+    # ==========================================
 
     device_history = df[
         (df["device_id"].astype(str) == str(device_id)) &
-        (df["timestamp"] <= previous_timestamp)
+        (df["timestamp"] < current_timestamp)
     ]
 
     device_previous_count = len(device_history)
 
 
-    merchant_history = df[
-        (df["merchant_id"].astype(str) == str(merchant_id)) &
-        (df["timestamp"] <= previous_timestamp)
+    # TEMPORARY DEBUG: compare device-history cutoffs
+    device_rows = df[
+        df["device_id"].astype(str) == str(device_id)
     ]
 
-    merchant_previous_count = len(merchant_history)
-
-
-    # ==========================================
-    # ESTIMATE NEXT TRANSACTION TIME
-    # ==========================================
-
-    previous_timestamp = customer_history.iloc[-1]["timestamp"]
-
-    if len(customer_history) > 1:
-
-        customer_gaps = (
-            customer_history["timestamp"]
-            .diff()
-            .dt.total_seconds()
-            .dropna()
-        )
-
-        customer_gaps = customer_gaps[
-            customer_gaps > 0
+    count_at_previous = len(
+        device_rows[
+            device_rows["timestamp"] <= previous_timestamp
         ]
+    ) if previous_timestamp is not None else 0
 
-        if len(customer_gaps) > 0:
-
-            estimated_gap = customer_gaps.median()
-
-        else:
-
-            estimated_gap = 86400
-
-    else:
-
-        estimated_gap = 86400
-
-    current_timestamp = (
-        previous_timestamp +
-        pd.Timedelta(seconds=float(estimated_gap))
+    count_at_estimated_current = len(
+        device_rows[
+            device_rows["timestamp"] < current_timestamp
+        ]
     )
 
-    time_since_previous = estimated_gap
 
     # ==========================================
     # TEMPORAL FEATURES
@@ -333,6 +368,7 @@ def create_new_transaction_features(
     # ==========================================
     # FINAL 12 FEATURES
     # ==========================================
+
 
     features = np.array([
         amount,
@@ -349,7 +385,7 @@ def create_new_transaction_features(
         month
     ], dtype=np.float32)
 
-    return features
+    return features, current_timestamp
 
 class DemoPaymentRequest(BaseModel):
     amount: float
@@ -443,7 +479,7 @@ def demo_fraud_case():
         prediction = model.predict(
             sequence,
             verbose=0
-)
+        )
 
         fraud_probability = float(prediction[0][0])
 
@@ -475,7 +511,7 @@ def predict_new_payment(payment: NewPaymentRequest):
     try:
 
         # Create features for new transaction
-        new_features = create_new_transaction_features(
+        new_features, current_timestamp = create_new_transaction_features(
     payment.customer_id,
     payment.card_id,
     payment.merchant_id,
@@ -488,14 +524,15 @@ def predict_new_payment(payment: NewPaymentRequest):
         # ------------------------------------------
 
         customer_history = df[
-            df["customer_id"] == payment.customer_id
+            (df["customer_id"] == payment.customer_id) &
+            (df["timestamp"] < current_timestamp)
         ].copy()
 
         customer_history = customer_history.sort_values(
-            "timestamp"
+            "timestamp",
+            kind="stable"
         )
 
-        # Use the last 9 historical transactions
         history = customer_history[
             FEATURES
         ].tail(SEQUENCE_LENGTH - 1).values.astype(
@@ -510,6 +547,8 @@ def predict_new_payment(payment: NewPaymentRequest):
             history,
             new_features
         ])
+
+        print("DEBUG RAW SEQUENCE:", sequence.tolist(), flush=True)
 
         # ------------------------------------------
         # Padding
@@ -577,10 +616,12 @@ def predict_new_payment(payment: NewPaymentRequest):
 }
 
     except Exception as e:
-
+        import traceback
+        traceback.print_exc()
         return {
             "error": str(e)
-        } 
+        }
+    
 @app.post("/predict-demo-payment")
 def predict_demo_payment(payment: DemoPaymentRequest):
 

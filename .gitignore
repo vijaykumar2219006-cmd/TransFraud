@@ -13,6 +13,14 @@ venv/
 .venv/
 env/
 
+testenv/
+pandastest/
+
+__pycache__/
+*.py[cod]
+.env
+
+
 # Environment variables
 .env
 

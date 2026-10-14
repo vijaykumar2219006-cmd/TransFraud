@@ -1,8 +1,14 @@
-import pandas as pd
-import numpy as np
+
 import os
+from collections import deque
+
+import numpy as np
+import pandas as pd
 
 SEQUENCE_LENGTH = 10
+
+BASE_DIR = "datasets/SyntheticBanking"
+OUTPUT_DIR = os.path.join(BASE_DIR, "sequences_corrected")
 
 FEATURES = [
     "amount",
@@ -16,76 +22,70 @@ FEATURES = [
     "time_since_previous_customer_transaction",
     "hour",
     "day_of_week",
-    "month"
+    "month",
 ]
 
-def create_sequences(input_file, output_file):
-    print(f"\nLoading {input_file}...")
+os.makedirs(OUTPUT_DIR, exist_ok=True)
+
+# Keep each customer's earlier transactions across split boundaries.
+history = {}
+
+for split in ["train", "validation", "test"]:
+    input_file = os.path.join(BASE_DIR, f"{split}.csv")
+    output_file = os.path.join(
+        OUTPUT_DIR, f"{split}_sequences.npz"
+    )
+
+    print(f"\nLoading {input_file}...", flush=True)
 
     df = pd.read_csv(input_file)
+    df["timestamp"] = pd.to_datetime(
+        df["timestamp"], utc=True
+    )
+    df = df.sort_values(
+        "timestamp", kind="stable"
+    ).reset_index(drop=True)
 
-    # Make sure transactions are in chronological order
-    df["timestamp"] = pd.to_datetime(df["timestamp"])
-    df = df.sort_values(["customer_id", "timestamp"]).reset_index(drop=True)
+    values = df[FEATURES].to_numpy(dtype=np.float32)
+    customers = df["customer_id"].to_numpy()
+    labels = df["is_fraud"].to_numpy(dtype=np.int64)
 
-    sequences = []
-    labels = []
+    X = np.zeros(
+        (len(df), SEQUENCE_LENGTH, len(FEATURES)),
+        dtype=np.float32,
+    )
 
-    print("Creating sequences...")
+    print(f"Creating {split} sequences...", flush=True)
 
-    for customer_id, group in df.groupby("customer_id", sort=False):
+    for i, (customer, current) in enumerate(
+        zip(customers, values)
+    ):
+        if customer not in history:
+            history[customer] = deque(
+                maxlen=SEQUENCE_LENGTH
+            )
 
-        values = group[FEATURES].values.astype(np.float32)
-        targets = group["is_fraud"].values
+        customer_history = history[customer]
+        customer_history.append(current)
 
-        for i in range(len(group)):
+        seq = np.asarray(
+            customer_history, dtype=np.float32
+        )
 
-            start = max(0, i - SEQUENCE_LENGTH + 1)
-
-            sequence = values[start:i + 1]
-
-            # Pad beginning if fewer than 10 transactions exist
-            if len(sequence) < SEQUENCE_LENGTH:
-                padding = np.zeros(
-                    (SEQUENCE_LENGTH - len(sequence), len(FEATURES)),
-                    dtype=np.float32
-                )
-
-                sequence = np.vstack([padding, sequence])
-
-            sequences.append(sequence)
-            labels.append(targets[i])
-
-    X = np.array(sequences, dtype=np.float32)
-    y = np.array(labels, dtype=np.int64)
-
-    print("Sequences shape:", X.shape)
-    print("Labels shape:", y.shape)
+        X[i, -len(seq):, :] = seq
 
     np.savez_compressed(
         output_file,
         X=X,
-        y=y
+        y=labels,
     )
 
-    print(f"Saved: {output_file}")
+    print("Saved:", output_file, flush=True)
+    print("Sequence shape:", X.shape, flush=True)
+    print("Fraud labels:", int(labels.sum()), flush=True)
 
+    # Keep history between train -> validation -> test.
+    # This allows later splits to use past transactions only.
 
-os.makedirs("datasets/SyntheticBanking/sequences", exist_ok=True)
-
-create_sequences(
-    "datasets/SyntheticBanking/train.csv",
-    "datasets/SyntheticBanking/sequences/train_sequences.npz"
-)
-
-create_sequences(
-    "datasets/SyntheticBanking/validation.csv",
-    "datasets/SyntheticBanking/sequences/validation_sequences.npz"
-)
-
-create_sequences(
-    "datasets/SyntheticBanking/test.csv",
-    "datasets/SyntheticBanking/sequences/test_sequences.npz"
-)
-
-print("\n========== COMPLETE ==========")
+print("\nCorrected sequences created successfully.")
+print("Original sequence files and model were not overwritten.")

@@ -1,3 +1,8 @@
+from pathlib import Path
+
+PROJECT_ROOT = Path(__file__).resolve().parent.parent
+
+MODEL_PATH = PROJECT_ROOT / "models" / "transfraud_bilstm_transformer.keras"
 import numpy as np
 from tensorflow.keras.models import load_model
 from sklearn.metrics import (
@@ -8,7 +13,7 @@ from sklearn.metrics import (
     confusion_matrix
 )
 
-MODEL_PATH = "transfraud_bilstm_transformer.keras"
+MODEL_PATH = "models/transfraud_bilstm_transformer.keras"
 TEST_PATH = "datasets/SyntheticBanking/sequences/test_sequences.npz"
 
 # Load model
@@ -24,8 +29,8 @@ print("Test sequence shape:", X_test.shape)
 print("Test labels:", len(y_test))
 
 # Load training scaler
-feature_mean = np.load("feature_mean.npy")
-feature_std = np.load("feature_std.npy")
+feature_mean = np.load(PROJECT_ROOT / "models" / "feature_mean.npy")
+feature_std = np.load(PROJECT_ROOT / "models" / "feature_std.npy")
 
 # Scale
 X_test = (

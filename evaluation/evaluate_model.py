@@ -17,8 +17,8 @@ X_test = test["X"].astype("float32")
 y_test = test["y"]
 
 # Load training statistics
-mean = np.load("feature_mean.npy")
-std = np.load("feature_std.npy")
+mean = np.load("models/feature_mean.npy")
+std = np.load("models/feature_std.npy")
 
 std[std == 0] = 1
 
@@ -29,7 +29,7 @@ print("Test data:", X_test.shape)
 
 # Load trained model
 model = load_model(
-    "transfraud_bilstm_transformer.keras"
+    "models/transfraud_bilstm_transformer.keras"
 )
 
 # Predict fraud probabilities
