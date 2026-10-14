@@ -1,0 +1,112 @@
+TRANSFRAUD — DEMO INPUTS FOR PROJECT GUIDE
+==========================================
+
+TEST CASE 1 — Normal Payment / Existing Device
+-----------------------------------------------
+Customer ID: CUST0000186
+Receiver ID: TEST001
+Card ID: CARD0000186-3
+Merchant ID: MID017968
+Device ID: 4b00bd1c7e06
+Amount: 100
+New Device: OFF
+
+Expected: Low Risk
+Previously observed: ~28.50% fraud probability
+Decision: Proceed
+
+
+TEST CASE 2 — New Device / Same Amount
+--------------------------------------
+Customer ID: CUST0000186
+Receiver ID: TEST001
+Card ID: CARD0000186-3
+Merchant ID: MID017968
+Device ID: BRAND_NEW_DEVICE_TEST999
+Amount: 100
+New Device: ON
+
+Expected: High Risk
+Previously observed: ~99.87% fraud probability
+Decision: Alert / Verify
+
+
+TEST CASE 3 — Small Amount / Existing Device
+--------------------------------------------
+Customer ID: CUST0000186
+Receiver ID: TEST001
+Card ID: CARD0000186-3
+Merchant ID: MID017968
+Device ID: 4b00bd1c7e06
+Amount: 50
+New Device: OFF
+
+Expected: Low Risk
+Previously observed: ~28.49% fraud probability
+Decision: Proceed
+
+
+TEST CASE 4 — Small Amount / New Device
+---------------------------------------
+Customer ID: CUST0000186
+Receiver ID: TEST001
+Card ID: CARD0000186-3
+Merchant ID: MID017968
+Device ID: BRAND_NEW_DEVICE_TEST999
+Amount: 50
+New Device: ON
+
+Expected: High Risk
+Previously observed: ~99.87% fraud probability
+Decision: Alert / Verify
+
+
+TEST CASE 5 — Higher Amount / Existing Device
+---------------------------------------------
+Customer ID: CUST0000186
+Receiver ID: TEST001
+Card ID: CARD0000186-3
+Merchant ID: MID017968
+Device ID: 4b00bd1c7e06
+Amount: 5000
+New Device: OFF
+
+Expected: Low Risk (previously observed)
+Previously observed: ~28.60% fraud probability
+Decision: Proceed (previously observed)
+
+Note: This is a controlled test. A high amount can still be suspicious;
+do not claim that a higher amount is always low risk.
+
+
+TEST CASE 6 — Built-in Fraud Demonstration
+------------------------------------------
+Action: Click "TEST DEMO FRAUD CASE"
+
+No manual details are required.
+
+Previously observed:
+Customer ID: CUST0000186
+Amount: 1.72
+Actual Label: Fraud
+Fraud Probability: ~99.90%
+Risk: High
+Decision: Alert / Verify
+
+
+QUICK DEMO ORDER
+================
+1. Run Test Case 1 to show a normal payment.
+2. Run Test Case 2 to compare the same payment with a new device.
+3. Run Test Case 3 if your guide asks about a smaller amount.
+4. Run Test Case 5 if your guide asks about a larger amount.
+5. Click the built-in fraud demo to show a high-risk case.
+
+IMPORTANT
+=========
+- These are previously observed results; the score can vary across runs.
+- If the application has separate input fields, enter the exact identifier
+  in its matching field.
+- The New Device status is derived from device history in the backend; if
+  the UI does not have a New Device toggle, change the Device ID as shown.
+- Use only synthetic/demo identifiers, not real payment or customer data.
